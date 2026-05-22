@@ -158,11 +158,13 @@ export default function PRFinder() {
     setLoadingSummaries(prev => ({ ...prev, [pr.id]: true }));
     try {
       // 1. Supabase에서 캐시된 요약 조회
-      const { data: cachedData, error: fetchError } = await supabase
-        .from('pr_summaries')
-        .select('*')
-        .eq('pr_number', pr.id)
-        .single();
+      const { data: cachedData, error: fetchError } = supabase
+        ? await supabase
+            .from('pr_summaries')
+            .select('*')
+            .eq('pr_number', pr.id)
+            .single()
+        : { data: null, error: new Error('Supabase client unavailable') };
 
       let currentSummary: string | null = null;
       let isCached = false;
@@ -207,14 +209,16 @@ export default function PRFinder() {
           isCached = false;
 
           // 4. 새 요약을 Supabase에 저장 (upsert)
-          await supabase
-            .from('pr_summaries')
-            .upsert({
-              pr_number: pr.id,
-              pr_title: pr.title,
-              summary: currentSummary,
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'pr_number' });
+          if (supabase) {
+            await supabase
+              .from('pr_summaries')
+              .upsert({
+                pr_number: pr.id,
+                pr_title: pr.title,
+                summary: currentSummary,
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'pr_number' });
+          }
         } else {
           throw new Error("API 요약 응답 오류");
         }
@@ -262,11 +266,13 @@ export default function PRFinder() {
       const changesRequestedAt = latestChangesRequested?.submitted_at || null;
 
       // 2. Supabase에서 캐시된 중요 코멘트 조회
-      const { data: cachedData, error: fetchError } = await supabase
-        .from('pr_important_comments')
-        .select('*')
-        .eq('pr_number', pr.id)
-        .single();
+      const { data: cachedData, error: fetchError } = supabase
+        ? await supabase
+            .from('pr_important_comments')
+            .select('*')
+            .eq('pr_number', pr.id)
+            .single()
+        : { data: null, error: new Error('Supabase client unavailable') };
 
       let needsUpdate = true;
 
@@ -365,14 +371,16 @@ export default function PRFinder() {
             .filter((c): c is ImportantComment => c !== null);
 
           // 5. Supabase에 저장 (upsert)
-          await supabase
-            .from('pr_important_comments')
-            .upsert({
-              pr_number: pr.id,
-              important_comments: importantList,
-              changes_requested_at: changesRequestedAt,
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'pr_number' });
+          if (supabase) {
+            await supabase
+              .from('pr_important_comments')
+              .upsert({
+                pr_number: pr.id,
+                important_comments: importantList,
+                changes_requested_at: changesRequestedAt,
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'pr_number' });
+          }
 
           setImportantComments(prev => ({
             ...prev,
