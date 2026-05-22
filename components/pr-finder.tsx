@@ -141,23 +141,14 @@ export default function PRFinder() {
   const [loadingImportantComments, setLoadingImportantComments] = useState<Record<number, boolean>>({});
   const [showImportantOnly, setShowImportantOnly] = useState<Record<number, boolean>>({});
   const [changesRequestedAtMap, setChangesRequestedAtMap] = useState<Record<number, string | null>>({});
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchPRs = async () => {
       try {
         setLoading(true);
         const response = await fetch('https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls?state=all&sort=updated&direction=desc&per_page=40', {
-          headers: {
-            ...githubHeaders,
-            ...(lastSyncAt ? { 'If-Modified-Since': lastSyncAt } : {})
-          }
+          headers: githubHeaders
         });
-
-        if (response.status === 304) {
-          setLoading(false);
-          return;
-        }
         
         if (!response.ok) {
           throw new Error('GitHub API 호출에 실패했습니다. (API 요청 횟수 제한 초과일 수 있습니다)');
@@ -194,7 +185,6 @@ export default function PRFinder() {
         })).filter((pr: PR) => pr.status !== 'CLOSED' && new Date(pr.createdAt) >= PR_DATE_CUTOFF);
 
         setPrs(formattedPrs);
-        setLastSyncAt(new Date().toUTCString());
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {
@@ -203,7 +193,7 @@ export default function PRFinder() {
     };
 
     fetchPRs();
-  }, [lastSyncAt]);
+  }, []);
 
   const generateSummary = async (pr: PR) => {
     if (summaries[pr.id] || loadingSummaries[pr.id]) return;
