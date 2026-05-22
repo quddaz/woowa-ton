@@ -149,7 +149,7 @@ export default function PRFinder() {
     const fetchPRs = async () => {
       try {
         setLoading(true);
-        const response = await fetch('https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls?state=all&sort=updated&direction=desc&per_page=40', {
+        const response = await fetch('https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls?state=all&sort=updated&direction=desc&per_page=100', {
           headers: githubHeaders
         });
         
