@@ -57,7 +57,6 @@ const generateGeminiContent = async (payload: unknown) => {
   return result;
 };
 
-
 const formatSummary = (text: string) => {
   return text
     .split('\n')
@@ -142,14 +141,23 @@ export default function PRFinder() {
   const [loadingImportantComments, setLoadingImportantComments] = useState<Record<number, boolean>>({});
   const [showImportantOnly, setShowImportantOnly] = useState<Record<number, boolean>>({});
   const [changesRequestedAtMap, setChangesRequestedAtMap] = useState<Record<number, string | null>>({});
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchPRs = async () => {
       try {
         setLoading(true);
-        const response = await fetch('https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls?state=all&sort=updated&direction=desc&per_page=100', {
-          headers: githubHeaders
+        const response = await fetch('https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls?state=all&sort=updated&direction=desc&per_page=40', {
+          headers: {
+            ...githubHeaders,
+            ...(lastSyncAt ? { 'If-Modified-Since': lastSyncAt } : {})
+          }
         });
+
+        if (response.status === 304) {
+          setLoading(false);
+          return;
+        }
         
         if (!response.ok) {
           throw new Error('GitHub API 호출에 실패했습니다. (API 요청 횟수 제한 초과일 수 있습니다)');
@@ -183,9 +191,10 @@ export default function PRFinder() {
           commentsUrl: pr.comments_url,
           reviewCommentsUrl: pr.review_comments_url,
           hashtags: extractHashtags(pr.title + ' ' + pr.body)
-        })).filter((pr: PR) => pr.status !== 'CLOSED' && new Date(pr.updatedAt) >= PR_DATE_CUTOFF);
+        })).filter((pr: PR) => pr.status !== 'CLOSED' && new Date(pr.createdAt) >= PR_DATE_CUTOFF);
 
         setPrs(formattedPrs);
+        setLastSyncAt(new Date().toUTCString());
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {
@@ -194,7 +203,7 @@ export default function PRFinder() {
     };
 
     fetchPRs();
-  }, []);
+  }, [lastSyncAt]);
 
   const generateSummary = async (pr: PR) => {
     if (summaries[pr.id] || loadingSummaries[pr.id]) return;
@@ -371,6 +380,7 @@ export default function PRFinder() {
 중요한 코멘트가 없으면 빈 배열 []을 반환하세요.
 반드시 유효한 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
         const payload = {
           contents: [{ parts: [{ text: commentsText }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -602,7 +612,7 @@ export default function PRFinder() {
             <input
               type="text"
               className="block w-full pl-9 pr-8 py-2.5 bg-white border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-              placeholder="2026-01-01 이후 업데이트된 PR 제목/작성자 검색..."
+              placeholder="2026-01-01 이후 PR 제목/작성자 검색..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
