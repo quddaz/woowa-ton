@@ -15,7 +15,8 @@ const supabase = createClient();
 const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash';
-const PR_DATE_CUTOFF = new Date('2026-01-01T00:00:00Z');
+const CURRENT_YEAR = new Date().getUTCFullYear();
+const PR_DATE_CUTOFF = new Date(Date.UTC(CURRENT_YEAR, 0, 1, 0, 0, 0));
 
 // GitHub Token (선택적)
 const GITHUB_TOKEN = process.env.NEXT_PUBLIC_GITHUB_TOKEN;
@@ -99,6 +100,8 @@ interface Comment {
   content: string;
   created_at: string;
   isReply: boolean;
+  codeContext?: string;
+  codePath?: string;
 }
 
 interface ImportantComment {
@@ -519,18 +522,22 @@ export default function PRFinder() {
           avatarUrl: thread.root.user?.avatar_url,
           content: thread.root.body,
           created_at: thread.root.created_at,
-          isReply: false
+          isReply: false,
+          codeContext: typeof thread.root.diff_hunk === 'string' ? thread.root.diff_hunk : undefined,
+          codePath: typeof thread.root.path === 'string' ? thread.root.path : undefined
         });
 
         thread.replies.sort((a: { created_at: string }, b: { created_at: string }) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-        thread.replies.forEach((reply: { id: number; user?: { login: string; avatar_url: string }; body: string; created_at: string }) => {
+        thread.replies.forEach((reply: { id: number; user?: { login: string; avatar_url: string }; body: string; created_at: string; diff_hunk?: string; path?: string }) => {
           formattedComments.push({
             id: reply.id,
             reviewer: reply.user?.login || 'unknown',
             avatarUrl: reply.user?.avatar_url || '',
             content: reply.body,
             created_at: reply.created_at,
-            isReply: true
+            isReply: true,
+            codeContext: typeof reply.diff_hunk === 'string' ? reply.diff_hunk : undefined,
+            codePath: typeof reply.path === 'string' ? reply.path : undefined
           });
         });
       });
@@ -602,7 +609,7 @@ export default function PRFinder() {
             <input
               type="text"
               className="block w-full pl-9 pr-8 py-2.5 bg-white border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-              placeholder="2026-01-01 이후 PR 제목/작성자 검색..."
+              placeholder={`${CURRENT_YEAR}-01-01 이후 PR 제목/작성자 검색...`}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -832,6 +839,16 @@ export default function PRFinder() {
                                         </span>
                                       )}
                                     </div>
+                                    {comment.codeContext && (
+                                      <div className="px-4 pt-3">
+                                        <p className="text-xs font-medium text-slate-500 mb-2">
+                                          {comment.codePath ? `파일: ${comment.codePath}` : '지정 코드'}
+                                        </p>
+                                        <pre className="text-xs bg-slate-900 text-slate-100 rounded-md p-3 overflow-x-auto">
+{comment.codeContext}
+                                        </pre>
+                                      </div>
+                                    )}
                                     <div className="px-4 py-3 text-sm text-slate-700 prose prose-sm max-w-none prose-p:my-1 prose-code:text-xs prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-slate-800 prose-pre:text-slate-100">
                                       <ReactMarkdown>{comment.content}</ReactMarkdown>
                                     </div>
