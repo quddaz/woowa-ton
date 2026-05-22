@@ -57,7 +57,6 @@ const generateGeminiContent = async (payload: unknown) => {
   return result;
 };
 
-
 const formatSummary = (text: string) => {
   return text
     .split('\n')
@@ -381,6 +380,7 @@ export default function PRFinder() {
 중요한 코멘트가 없으면 빈 배열 []을 반환하세요.
 반드시 유효한 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
         const payload = {
           contents: [{ parts: [{ text: commentsText }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
