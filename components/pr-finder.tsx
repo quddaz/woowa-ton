@@ -221,18 +221,11 @@ export default function PRFinder() {
       let isCached = false;
       let needsUpdate = true;
 
-      // 2. 캐시가 존재하고 PR/리뷰 변경이 없으면 캐시 사용
-      if (!fetchError && cachedData) {
-        const cachedUpdatedAt = new Date(cachedData.updated_at).getTime();
-        const prUpdatedAt = new Date(pr.updatedAt).getTime();
-        const changesRequestedAt = changesRequestedAtMap[pr.id];
-        const changesRequestedTime = changesRequestedAt ? new Date(changesRequestedAt).getTime() : 0;
-
-        if (cachedUpdatedAt >= prUpdatedAt && cachedUpdatedAt >= changesRequestedTime) {
-          currentSummary = cachedData.summary;
-          isCached = true;
-          needsUpdate = false;
-        }
+      // 2. DB 캐시가 존재하면 AI를 호출하지 않고 즉시 사용
+      if (!fetchError && cachedData?.summary) {
+        currentSummary = cachedData.summary;
+        isCached = true;
+        needsUpdate = false;
       }
 
       // 3. 캐시가 없거나 PR이 갱신되었다면 Gemini AI 호출
@@ -314,8 +307,6 @@ export default function PRFinder() {
     setLoadingImportantComments(prev => ({ ...prev, [pr.id]: true }));
 
     try {
-      const changesRequestedAt = await fetchChangesRequestedAt(pr);
-
       // 2. Supabase에서 캐시된 중요 코멘트 조회
       const { data: cachedData, error: fetchError } = supabase
         ? await supabase
@@ -327,21 +318,16 @@ export default function PRFinder() {
 
       let needsUpdate = true;
 
-      // 3. 캐시가 존재하고 changes_requested_at이 동일하면 캐시 사용
-      if (!fetchError && cachedData) {
-        const cachedChangesAt = cachedData.changes_requested_at;
-        
-        if (cachedChangesAt === changesRequestedAt || 
-            (!changesRequestedAt && !cachedChangesAt) ||
-            (cachedChangesAt && changesRequestedAt && 
-             new Date(cachedChangesAt).getTime() === new Date(changesRequestedAt).getTime())) {
-          setImportantComments(prev => ({
-            ...prev,
-            [pr.id]: { comments: cachedData.important_comments as ImportantComment[], cached: true }
-          }));
-          needsUpdate = false;
-        }
+      // 3. DB 캐시가 존재하면 AI를 호출하지 않고 즉시 사용
+      if (!fetchError && cachedData?.important_comments) {
+        setImportantComments(prev => ({
+          ...prev,
+          [pr.id]: { comments: cachedData.important_comments as ImportantComment[], cached: true }
+        }));
+        needsUpdate = false;
       }
+
+      const changesRequestedAt = needsUpdate ? await fetchChangesRequestedAt(pr) : null;
 
       // 4. 갱신 필요 시 AI로 중요 코멘트 필터링
       if (needsUpdate && GEMINI_API_KEY) {
