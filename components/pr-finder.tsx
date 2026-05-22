@@ -15,6 +15,7 @@ const supabase = createClient();
 const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash';
+const PR_DATE_CUTOFF = new Date('2026-01-01T00:00:00Z');
 
 // GitHub Token (선택적)
 const GITHUB_TOKEN = process.env.NEXT_PUBLIC_GITHUB_TOKEN;
@@ -56,6 +57,14 @@ const generateGeminiContent = async (payload: unknown) => {
   return result;
 };
 
+const formatSummary = (text: string) => {
+  return text
+    .split('\n')
+    .map(line => line.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
+};
+
 const extractHashtags = (text: string | null) => {
   if (!text) return ['기능구현'];
   const keywords = ['예외처리', 'RestControllerAdvice', '인터셉터', '도메인', 'DTO', '동시성', 'JPA', '테스트', 'Auth', '권한', '리팩터링', '인증', '인가', '세션', '쿠키', '상태패턴', '일급컬렉션'];
@@ -76,6 +85,7 @@ interface PR {
   status: 'OPEN' | 'MERGED' | 'CLOSED';
   githubUrl: string;
   body: string;
+  createdAt: string;
   updatedAt: string;
   commentsUrl: string;
   reviewCommentsUrl: string;
@@ -163,6 +173,7 @@ export default function PRFinder() {
           merged_at: string | null;
           html_url: string;
           body: string | null;
+          created_at: string;
           updated_at: string;
           comments_url: string;
           review_comments_url: string;
@@ -175,11 +186,12 @@ export default function PRFinder() {
           status: pr.state === 'open' ? 'OPEN' : (pr.merged_at ? 'MERGED' : 'CLOSED'),
           githubUrl: pr.html_url,
           body: pr.body || 'PR 본문 내용이 없습니다.',
+          createdAt: pr.created_at,
           updatedAt: pr.updated_at,
           commentsUrl: pr.comments_url,
           reviewCommentsUrl: pr.review_comments_url,
           hashtags: extractHashtags(pr.title + ' ' + pr.body)
-        })).filter((pr: PR) => pr.status !== 'CLOSED');
+        })).filter((pr: PR) => pr.status !== 'CLOSED' && new Date(pr.createdAt) >= PR_DATE_CUTOFF);
 
         setPrs(formattedPrs);
         setLastSyncAt(new Date().toUTCString());
@@ -367,7 +379,7 @@ export default function PRFinder() {
 
 중요한 코멘트가 없으면 빈 배열 []을 반환하세요.
 반드시 유효한 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
-        
+
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
         const payload = {
           contents: [{ parts: [{ text: commentsText }] }],
@@ -600,7 +612,7 @@ export default function PRFinder() {
             <input
               type="text"
               className="block w-full pl-9 pr-8 py-2.5 bg-white border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-              placeholder="PR 제목 또는 작성자(GitHub ID)로 검색해보세요..."
+              placeholder="2026-01-01 이후 PR 제목/작성자 검색..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
