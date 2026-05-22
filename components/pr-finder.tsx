@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, Github, MessageSquare, X, AlertCircle,
-  GitPullRequest, GitMerge, Check, ChevronRight, Sparkles, Loader2, AlertTriangle, Info, Filter
+  GitPullRequest, GitMerge, Check, ChevronRight, Sparkles, Loader2, Info, Filter
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { createClient } from '@/lib/supabase/client';
@@ -64,6 +64,15 @@ const formatSummary = (text: string) => {
     .map(line => line.replace(/^[-*]\s*/, '').trim())
     .filter(Boolean)
     .slice(0, 5);
+};
+
+const extractGitHubLineInfo = (codeContext: string): string | null => {
+  const match = codeContext.match(/@@\s-[^\s]+\s\+([^\s]+)\s@@/);
+  if (!match) return null;
+  const [start, count] = match[1].split(',');
+  if (!start) return null;
+  if (!count || count === '1') return `Line ${start}`;
+  return `Lines ${start}-${Number(start) + Number(count) - 1}`;
 };
 
 
@@ -703,21 +712,6 @@ export default function PRFinder() {
                           </div>
                         </div>
 
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-[#57606a] text-sm font-semibold">
-                            <AlertTriangle className="w-4 h-4" />
-                            <span>AI Summery</span>
-                          </div>
-                          <div className="rounded-md border border-[#d0d7de] bg-white overflow-hidden">
-                            <div className="px-4 py-3 bg-[#f6f8fa] border-b border-[#d0d7de] text-sm text-[#57606a] font-medium">
-                              PR description
-                            </div>
-                            <div className="px-5 py-4 prose prose-sm max-w-none text-[#1f2328]">
-                              <ReactMarkdown>{pr.body}</ReactMarkdown>
-                            </div>
-                          </div>
-                        </div>
-
                         <div>
                           <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-2">
@@ -810,10 +804,15 @@ export default function PRFinder() {
                                     </div>
                                     {comment.codeContext && (
                                       <div className="px-4 pt-3">
-                                        <p className="text-xs font-medium text-slate-500 mb-2">
-                                          {comment.codePath ? `파일: ${comment.codePath}` : '지정 코드'}
-                                        </p>
-                                        <pre className="text-xs bg-slate-900 text-slate-100 rounded-md p-3 overflow-x-auto">
+                                        <div className="text-xs font-medium text-[#57606a] mb-2 flex items-center gap-2 flex-wrap">
+                                          <span>{comment.codePath ? `파일: ${comment.codePath}` : '지정 코드'}</span>
+                                          {extractGitHubLineInfo(comment.codeContext) && (
+                                            <span className="rounded-full border border-[#1f883d33] bg-[#dafbe1] px-2 py-0.5 text-[10px] font-semibold text-[#1a7f37]">
+                                              {extractGitHubLineInfo(comment.codeContext)}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <pre className="text-xs bg-[#dafbe1] text-[#1a7f37] border border-[#1f883d33] rounded-md p-3 overflow-x-auto">
 {comment.codeContext}
                                         </pre>
                                       </div>
