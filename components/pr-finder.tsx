@@ -13,6 +13,7 @@ const supabase = createClient();
 
 // Gemini API Key
 const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
 
 // GitHub Token (선택적)
 const GITHUB_TOKEN = process.env.NEXT_PUBLIC_GITHUB_TOKEN;
@@ -188,7 +189,7 @@ export default function PRFinder() {
 만약 명시적인 질문이 없다면 리뷰어가 중점적으로 봐야할 부분을 유추해서 작성해.
 주의: '시니어 백엔드 시선에서', '요약해 드리겠습니다' 등의 서론이나 불필요한 수식어 없이, 곧바로 마크다운 bullet point(-) 형식의 결과만 간결하게 출력해.`;
         const userQuery = `PR 본문:\n${pr.body}`;
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite-preview-06-17:generateContent?key=${GEMINI_API_KEY}`;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
         const payload = {
           contents: [{ parts: [{ text: userQuery }] }],
@@ -202,6 +203,11 @@ export default function PRFinder() {
         });
 
         const result = await response.json();
+
+        if (!response.ok) {
+          const apiMessage = result?.error?.message || `HTTP ${response.status}`;
+          throw new Error(`Gemini API 요청 실패: ${apiMessage}`);
+        }
         const candidate = result.candidates?.[0];
 
         if (candidate && candidate.content?.parts?.[0]?.text) {
@@ -232,7 +238,8 @@ export default function PRFinder() {
       }
     } catch (error) {
       console.error("AI 요약/DB 처리 실패:", error);
-      setSummaries(prev => ({ ...prev, [pr.id]: { text: "요약 생성 또는 조회 중 오류가 발생했습니다.", cached: false } }));
+      const errorMessage = error instanceof Error ? error.message : "요약 생성 또는 조회 중 오류가 발생했습니다.";
+      setSummaries(prev => ({ ...prev, [pr.id]: { text: errorMessage, cached: false } }));
     } finally {
       setLoadingSummaries(prev => ({ ...prev, [pr.id]: false }));
     }
