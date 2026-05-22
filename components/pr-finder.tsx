@@ -13,13 +13,47 @@ const supabase = createClient();
 
 // Gemini API Key
 const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash-lite-preview-06-17';
+const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash';
 
 // GitHub Token (선택적)
 const GITHUB_TOKEN = process.env.NEXT_PUBLIC_GITHUB_TOKEN;
 const githubHeaders: Record<string, string> = {
   'Accept': 'application/vnd.github.v3+json',
   ...(GITHUB_TOKEN ? { 'Authorization': `Bearer ${GITHUB_TOKEN}` } : {})
+};
+
+const generateGeminiContent = async (payload: unknown) => {
+  const primaryApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  let response = await fetch(primaryApiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  let result = await response.json();
+
+  const isModelUnavailable =
+    !response.ok &&
+    typeof result?.error?.message === 'string' &&
+    (result.error.message.includes('is not found') ||
+      result.error.message.includes('is not supported'));
+
+  if (isModelUnavailable && GEMINI_MODEL !== GEMINI_FALLBACK_MODEL) {
+    const fallbackApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FALLBACK_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    response = await fetch(fallbackApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    result = await response.json();
+  }
+
+  if (!response.ok) {
+    const apiMessage = result?.error?.message || `HTTP ${response.status}`;
+    throw new Error(`Gemini API 요청 실패: ${apiMessage}`);
+  }
+
+  return result;
 };
 
 const extractHashtags = (text: string | null) => {
@@ -189,25 +223,12 @@ export default function PRFinder() {
 만약 명시적인 질문이 없다면 리뷰어가 중점적으로 봐야할 부분을 유추해서 작성해.
 주의: '시니어 백엔드 시선에서', '요약해 드리겠습니다' 등의 서론이나 불필요한 수식어 없이, 곧바로 마크다운 bullet point(-) 형식의 결과만 간결하게 출력해.`;
         const userQuery = `PR 본문:\n${pr.body}`;
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
         const payload = {
           contents: [{ parts: [{ text: userQuery }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
         };
 
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          const apiMessage = result?.error?.message || `HTTP ${response.status}`;
-          throw new Error(`Gemini API 요청 실패: ${apiMessage}`);
-        }
+        const result = await generateGeminiContent(payload);
         const candidate = result.candidates?.[0];
 
         if (candidate && candidate.content?.parts?.[0]?.text) {
@@ -330,19 +351,12 @@ export default function PRFinder() {
 반드시 유효한 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
 
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
         const payload = {
           contents: [{ parts: [{ text: commentsText }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
         };
 
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        const result = await response.json();
+        const result = await generateGeminiContent(payload);
         const candidate = result.candidates?.[0];
 
         if (candidate && candidate.content?.parts?.[0]?.text) {
