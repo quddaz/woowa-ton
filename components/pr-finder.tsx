@@ -13,13 +13,57 @@ const supabase = createClient();
 
 // Gemini API Key
 const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash';
+const PR_DATE_CUTOFF = new Date('2026-01-01T00:00:00Z');
 
 // GitHub Token (선택적)
 const GITHUB_TOKEN = process.env.NEXT_PUBLIC_GITHUB_TOKEN;
 const githubHeaders: Record<string, string> = {
   'Accept': 'application/vnd.github.v3+json',
   ...(GITHUB_TOKEN ? { 'Authorization': `Bearer ${GITHUB_TOKEN}` } : {})
+};
+
+const generateGeminiContent = async (payload: unknown) => {
+  const primaryApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  let response = await fetch(primaryApiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  let result = await response.json();
+
+  const isModelUnavailable =
+    !response.ok &&
+    typeof result?.error?.message === 'string' &&
+    (result.error.message.includes('is not found') ||
+      result.error.message.includes('is not supported'));
+
+  if (isModelUnavailable && GEMINI_MODEL !== GEMINI_FALLBACK_MODEL) {
+    const fallbackApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FALLBACK_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    response = await fetch(fallbackApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    result = await response.json();
+  }
+
+  if (!response.ok) {
+    const apiMessage = result?.error?.message || `HTTP ${response.status}`;
+    throw new Error(`Gemini API 요청 실패: ${apiMessage}`);
+  }
+
+  return result;
+};
+
+
+const formatSummary = (text: string) => {
+  return text
+    .split('\n')
+    .map(line => line.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
 };
 
 const extractHashtags = (text: string | null) => {
@@ -42,6 +86,7 @@ interface PR {
   status: 'OPEN' | 'MERGED' | 'CLOSED';
   githubUrl: string;
   body: string;
+  createdAt: string;
   updatedAt: string;
   commentsUrl: string;
   reviewCommentsUrl: string;
@@ -96,12 +141,13 @@ export default function PRFinder() {
   const [importantComments, setImportantComments] = useState<Record<number, ImportantCommentsData>>({});
   const [loadingImportantComments, setLoadingImportantComments] = useState<Record<number, boolean>>({});
   const [showImportantOnly, setShowImportantOnly] = useState<Record<number, boolean>>({});
+  const [changesRequestedAtMap, setChangesRequestedAtMap] = useState<Record<number, string | null>>({});
 
   useEffect(() => {
     const fetchPRs = async () => {
       try {
         setLoading(true);
-        const response = await fetch('https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls?state=all&per_page=40', {
+        const response = await fetch('https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls?state=all&sort=updated&direction=desc&per_page=100', {
           headers: githubHeaders
         });
         
@@ -119,6 +165,7 @@ export default function PRFinder() {
           merged_at: string | null;
           html_url: string;
           body: string | null;
+          created_at: string;
           updated_at: string;
           comments_url: string;
           review_comments_url: string;
@@ -131,11 +178,12 @@ export default function PRFinder() {
           status: pr.state === 'open' ? 'OPEN' : (pr.merged_at ? 'MERGED' : 'CLOSED'),
           githubUrl: pr.html_url,
           body: pr.body || 'PR 본문 내용이 없습니다.',
+          createdAt: pr.created_at,
           updatedAt: pr.updated_at,
           commentsUrl: pr.comments_url,
           reviewCommentsUrl: pr.review_comments_url,
           hashtags: extractHashtags(pr.title + ' ' + pr.body)
-        })).filter((pr: PR) => pr.status !== 'CLOSED');
+        })).filter((pr: PR) => pr.status !== 'CLOSED' && new Date(pr.updatedAt) >= PR_DATE_CUTOFF);
 
         setPrs(formattedPrs);
       } catch (err) {
@@ -171,12 +219,14 @@ export default function PRFinder() {
       let isCached = false;
       let needsUpdate = true;
 
-      // 2. 캐시가 존재하고 PR이 수정되지 않았으면 캐시 사용
+      // 2. 캐시가 존재하고 PR/리뷰 변경이 없으면 캐시 사용
       if (!fetchError && cachedData) {
         const cachedUpdatedAt = new Date(cachedData.updated_at).getTime();
         const prUpdatedAt = new Date(pr.updatedAt).getTime();
-        
-        if (cachedUpdatedAt >= prUpdatedAt) {
+        const changesRequestedAt = changesRequestedAtMap[pr.id];
+        const changesRequestedTime = changesRequestedAt ? new Date(changesRequestedAt).getTime() : 0;
+
+        if (cachedUpdatedAt >= prUpdatedAt && cachedUpdatedAt >= changesRequestedTime) {
           currentSummary = cachedData.summary;
           isCached = true;
           needsUpdate = false;
@@ -189,25 +239,12 @@ export default function PRFinder() {
 만약 명시적인 질문이 없다면 리뷰어가 중점적으로 봐야할 부분을 유추해서 작성해.
 주의: '시니어 백엔드 시선에서', '요약해 드리겠습니다' 등의 서론이나 불필요한 수식어 없이, 곧바로 마크다운 bullet point(-) 형식의 결과만 간결하게 출력해.`;
         const userQuery = `PR 본문:\n${pr.body}`;
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
         const payload = {
           contents: [{ parts: [{ text: userQuery }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
         };
 
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          const apiMessage = result?.error?.message || `HTTP ${response.status}`;
-          throw new Error(`Gemini API 요청 실패: ${apiMessage}`);
-        }
+        const result = await generateGeminiContent(payload);
         const candidate = result.candidates?.[0];
 
         if (candidate && candidate.content?.parts?.[0]?.text) {
@@ -245,6 +282,29 @@ export default function PRFinder() {
     }
   };
 
+  const fetchChangesRequestedAt = async (pr: PR) => {
+    if (changesRequestedAtMap[pr.id] !== undefined) return changesRequestedAtMap[pr.id];
+
+    const reviewsResponse = await fetch(
+      `https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls/${pr.id}/reviews`,
+      { headers: githubHeaders }
+    );
+    const reviews = await reviewsResponse.json();
+    const changesRequestedReviews = Array.isArray(reviews)
+      ? reviews.filter((r: { state: string }) => r.state === 'CHANGES_REQUESTED')
+      : [];
+
+    const latestChangesRequested = changesRequestedReviews.length > 0
+      ? changesRequestedReviews.reduce((latest: { submitted_at: string }, r: { submitted_at: string }) =>
+          new Date(r.submitted_at) > new Date(latest.submitted_at) ? r : latest
+        )
+      : null;
+
+    const changesRequestedAt = latestChangesRequested?.submitted_at || null;
+    setChangesRequestedAtMap(prev => ({ ...prev, [pr.id]: changesRequestedAt }));
+    return changesRequestedAt;
+  };
+
   // 중요 코멘트 필터링 함수
   const filterImportantComments = async (pr: PR, allComments: Comment[]) => {
     if (loadingImportantComments[pr.id] || allComments.length === 0) return;
@@ -252,25 +312,7 @@ export default function PRFinder() {
     setLoadingImportantComments(prev => ({ ...prev, [pr.id]: true }));
 
     try {
-      // 1. GitHub Reviews API로 CHANGES_REQUESTED 시간 확인
-      const reviewsResponse = await fetch(
-        `https://api.github.com/repos/woowacourse/spring-roomescape-member/pulls/${pr.id}/reviews`,
-        { headers: githubHeaders }
-      );
-      const reviews = await reviewsResponse.json();
-      
-      // 가장 최근 CHANGES_REQUESTED 리뷰 시간 찾기
-      const changesRequestedReviews = Array.isArray(reviews) 
-        ? reviews.filter((r: { state: string }) => r.state === 'CHANGES_REQUESTED')
-        : [];
-      
-      const latestChangesRequested = changesRequestedReviews.length > 0
-        ? changesRequestedReviews.reduce((latest: { submitted_at: string }, r: { submitted_at: string }) => 
-            new Date(r.submitted_at) > new Date(latest.submitted_at) ? r : latest
-          )
-        : null;
-
-      const changesRequestedAt = latestChangesRequested?.submitted_at || null;
+      const changesRequestedAt = await fetchChangesRequestedAt(pr);
 
       // 2. Supabase에서 캐시된 중요 코멘트 조회
       const { data: cachedData, error: fetchError } = supabase
@@ -329,20 +371,12 @@ export default function PRFinder() {
 중요한 코멘트가 없으면 빈 배열 []을 반환하세요.
 반드시 유효한 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite-preview-06-17:generateContent?key=${GEMINI_API_KEY}`;
-
         const payload = {
           contents: [{ parts: [{ text: commentsText }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
         };
 
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        const result = await response.json();
+        const result = await generateGeminiContent(payload);
         const candidate = result.candidates?.[0];
 
         if (candidate && candidate.content?.parts?.[0]?.text) {
@@ -414,6 +448,7 @@ export default function PRFinder() {
     }
     
     setExpandedPrId(pr.id);
+    await fetchChangesRequestedAt(pr);
     generateSummary(pr);
 
     if (commentsData[pr.id]) {
@@ -541,24 +576,24 @@ export default function PRFinder() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6f8fa] font-sans text-slate-900">
-      <header className="bg-[#24292f] py-4 px-4 sm:px-6 lg:px-8 flex items-center gap-4 shadow-sm relative z-10">
+    <div className="min-h-screen bg-white font-sans text-[#1f2328]">
+      <header className="bg-[#f6f8fa] border-b border-[#d0d7de] py-3 px-4 sm:px-6 lg:px-8 flex items-center gap-4 sticky top-0 z-20">
         <div className="bg-white p-1 rounded-full">
           <Github className="w-6 h-6 text-[#24292f]" />
         </div>
-        <h1 className="text-lg font-semibold text-white tracking-tight flex items-center">
+        <h1 className="text-sm font-semibold text-[#1f2328] tracking-tight flex items-center">
           PR Finder 
           <span className="text-[10px] font-bold bg-blue-500 text-white px-2 py-0.5 rounded-full ml-3 tracking-wide">LIVE DATA</span>
           <span className="text-[10px] font-bold bg-indigo-500 text-white px-2 py-0.5 rounded-full ml-2 flex items-center gap-1 tracking-wide">
             <Sparkles className="w-3 h-3" /> AI POWERED
           </span>
         </h1>
-        <p className="text-sm text-slate-300 ml-auto hidden md:block">
+        <p className="text-xs text-[#656d76] ml-auto hidden md:block">
           우테코 백엔드 크루들의 의미 있는 리뷰 탐색기
         </p>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-[1280px] mx-auto px-4 py-6">
         <div className="mb-6 flex gap-3">
           <div className="relative flex-1 shadow-sm group">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -567,7 +602,7 @@ export default function PRFinder() {
             <input
               type="text"
               className="block w-full pl-9 pr-8 py-2.5 bg-white border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-              placeholder="PR 제목 또는 작성자(GitHub ID)로 검색해보세요..."
+              placeholder="2026-01-01 이후 업데이트된 PR 제목/작성자 검색..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -683,8 +718,21 @@ export default function PRFinder() {
                                 <span className="text-sm text-slate-500">AI가 PR 본문을 분석하고 있습니다...</span>
                               </div>
                             ) : summaries[pr.id] ? (
-                              <div className="prose prose-sm max-w-none prose-slate prose-p:text-slate-600 prose-p:leading-relaxed prose-li:text-slate-700 prose-li:marker:text-indigo-400">
-                                <ReactMarkdown>{summaries[pr.id].text}</ReactMarkdown>
+                              <div className="space-y-3">
+                                <div className="text-xs font-semibold text-[#656d76] uppercase tracking-wide">핵심 리뷰 포인트</div>
+                                <ol className="space-y-2">
+                                  {formatSummary(summaries[pr.id].text).map((item, idx) => (
+                                    <li key={idx} className="text-sm text-slate-700 bg-[#f6f8fa] border border-[#d0d7de] rounded-md px-3 py-2">
+                                      <span className="font-semibold text-[#0969da] mr-2">{idx + 1}.</span>{item}
+                                    </li>
+                                  ))}
+                                </ol>
+                                <details className="text-xs text-slate-500">
+                                  <summary className="cursor-pointer">원문 요약 보기</summary>
+                                  <div className="mt-2 prose prose-sm max-w-none">
+                                    <ReactMarkdown>{summaries[pr.id].text}</ReactMarkdown>
+                                  </div>
+                                </details>
                               </div>
                             ) : (
                               <div className="text-sm text-slate-500 italic py-2">
