@@ -2,10 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Search, Github, MessageSquare, X, AlertCircle,
-  GitPullRequest, GitMerge, Check, ChevronRight, Sparkles, Loader2, Bot, Filter
+  Search, RefreshCw, GitPullRequest, MessageSquare, ChevronDown, ChevronRight, Clock, Github, Info
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import { createClient } from '@/lib/supabase/client';
 
 // Supabase 클라이언트
@@ -58,13 +56,6 @@ const generateGeminiContent = async (payload: unknown) => {
   return result;
 };
 
-const formatSummary = (text: string) => {
-  return text
-    .split('\n')
-    .map(line => line.replace(/^[-*]\s*/, '').trim())
-    .filter(Boolean)
-    .slice(0, 5);
-};
 
 const extractHashtags = (text: string | null) => {
   if (!text) return ['기능구현'];
@@ -76,6 +67,17 @@ const extractHashtags = (text: string | null) => {
   if (tags.length === 0) tags.push('기능구현');
   return tags;
 };
+
+
+const GithubMergeIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="7" cy="6" r="2.5" />
+    <circle cx="7" cy="18" r="2.5" />
+    <circle cx="17" cy="12" r="2.5" />
+    <path d="M7 8.5v7" />
+    <path d="M14.5 12H10c-1.657 0-3-1.343-3-3" />
+  </svg>
+);
 
 interface PR {
   id: number;
@@ -540,6 +542,15 @@ export default function PRFinder() {
     }
   };
 
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState(new Date());
+
+  const handleSync = () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setTimeout(() => { setLastSyncTime(new Date()); setIsSyncing(false); }, 800);
+  };
+
   const openCount = prs.filter(pr => pr.status === 'OPEN').length;
   const mergedCount = prs.filter(pr => pr.status === 'MERGED').length;
 
@@ -568,312 +579,32 @@ export default function PRFinder() {
     return commentsData[prId] || [];
   };
 
+  const timeAgoString = (iso: string) => {
+    const date = new Date(iso);
+    const diffMins = Math.round((Date.now() - date.getTime()) / 60000);
+    if (diffMins < 1) return '방금 전';
+    if (diffMins < 60) return `${diffMins}분 전`;
+    if (diffMins < 1440) return `${Math.floor(diffMins/60)}시간 전`;
+    return `${Math.floor(diffMins/1440)}일 전`;
+  };
+
   return (
-    <div className="min-h-screen bg-white font-sans text-[#1f2328]">
-      <header className="bg-[#f6f8fa] border-b border-[#d0d7de] py-3 px-4 sm:px-6 lg:px-8 flex items-center gap-4 sticky top-0 z-20">
-        <div className="bg-white p-1 rounded-full">
-          <Github className="w-6 h-6 text-[#24292f]" />
+    <div className="min-h-screen bg-white text-[#1f2328] font-sans pb-12">
+      <header className="bg-[#f6f8fa] border-b border-[#d0d7de] sticky top-0 z-20">
+        <div className="max-w-[1280px] mx-auto px-4 h-[60px] flex items-center justify-between">
+          <div className="flex items-center gap-3"><Github className="w-8 h-8" /><div className="font-semibold text-sm">woowacourse / spring-roomescape-member</div></div>
+          <button onClick={handleSync} className="flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs"><RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`}/>Sync</button>
         </div>
-        <h1 className="text-sm font-semibold text-[#1f2328] tracking-tight flex items-center">
-          PR Finder 
-          <span className="text-[10px] font-bold bg-blue-500 text-white px-2 py-0.5 rounded-full ml-3 tracking-wide">LIVE DATA</span>
-          <span className="text-[10px] font-bold bg-indigo-500 text-white px-2 py-0.5 rounded-full ml-2 flex items-center gap-1 tracking-wide">
-            <Sparkles className="w-3 h-3" /> AI POWERED
-          </span>
-        </h1>
-        <p className="text-xs text-[#656d76] ml-auto hidden md:block">
-          우테코 백엔드 크루들의 의미 있는 리뷰 탐색기
-        </p>
       </header>
-
       <main className="max-w-[1280px] mx-auto px-4 py-6">
-        <div className="mb-6 flex gap-3">
-          <div className="relative flex-1 shadow-sm group">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-            </div>
-            <input
-              type="text"
-              className="block w-full pl-9 pr-8 py-2.5 bg-white border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-              placeholder={`${CURRENT_YEAR}-01-01 이후 PR 제목/작성자 검색...`}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            {searchTerm && (
-              <button 
-                onClick={() => setSearchTerm('')}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center"
-              >
-                <X className="h-4 w-4 text-slate-400 hover:text-slate-600 transition-colors" />
-              </button>
-            )}
+        <div className="flex gap-2 mb-4"><div className="relative w-full max-w-[600px]"><Search className="absolute left-3 top-2.5 h-4 w-4 text-[#656d76]"/><input className="w-full pl-9 pr-3 py-1.5 border rounded-md" placeholder="search" value={searchTerm} onChange={(e)=>setSearchTerm(e.target.value)} /></div></div>
+        <div className="border rounded-md overflow-hidden">
+          <div className="bg-[#f6f8fa] border-b px-4 py-3 flex gap-4">
+            <button onClick={()=>setActiveTab('OPEN')} className="flex items-center gap-1.5"><GitPullRequest className="w-4 h-4 text-[#1a7f37]"/>{openCount} Open</button>
+            <button onClick={()=>setActiveTab('MERGED')} className="flex items-center gap-1.5"><GithubMergeIcon className="w-4 h-4 text-[#8250df]"/>{mergedCount} Merged</button>
           </div>
-        </div>
-
-        <div className="border border-slate-200 rounded-xl bg-white overflow-hidden shadow-sm">
-          <div className="bg-[#f6f8fa] border-b border-slate-200 px-2 py-2 flex items-center gap-2 text-sm">
-            <button 
-              onClick={() => { setActiveTab('OPEN'); setExpandedPrId(null); }}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-md font-semibold transition-all ${
-                activeTab === 'OPEN' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50 border border-transparent'
-              }`}
-            >
-              <GitPullRequest className="w-4 h-4" />
-              {loading ? '-' : openCount} Open
-            </button>
-            <button 
-              onClick={() => { setActiveTab('MERGED'); setExpandedPrId(null); }}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-md font-semibold transition-all ${
-                activeTab === 'MERGED' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50 border border-transparent'
-              }`}
-            >
-              <Check className="w-4 h-4" />
-              {loading ? '-' : mergedCount} Merged
-            </button>
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            {loading ? (
-              <div className="py-24 flex flex-col items-center justify-center text-slate-500 bg-white">
-                <Loader2 className="w-8 h-8 animate-spin mb-4 text-blue-500" />
-                <p>GitHub API에서 실시간 PR 목록을 동기화 중입니다...</p>
-              </div>
-            ) : error ? (
-              <div className="py-16 text-center text-red-500 bg-white px-4">
-                <AlertCircle className="w-8 h-8 mx-auto mb-3" />
-                <h3 className="text-base font-medium mb-1">데이터를 불러올 수 없습니다.</h3>
-                <p className="text-sm">{error}</p>
-              </div>
-            ) : filteredPRs.length > 0 ? (
-              filteredPRs.map((pr) => (
-                <div key={pr.id} className="group bg-white flex flex-col transition-colors duration-200">
-                  <div 
-                    className="p-4 hover:bg-blue-50/30 transition-colors flex items-start gap-3 cursor-pointer"
-                    onClick={() => togglePR(pr)}
-                  >
-                    <div className="pt-0.5 shrink-0">
-                      {pr.status === 'OPEN' 
-                        ? <GitPullRequest className="w-5 h-5 text-[#1a7f37]" />
-                        : <GitMerge className="w-5 h-5 text-[#8250df]" />
-                      }
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center flex-wrap gap-2 mb-1.5">
-                        <h3 className="text-[15px] font-semibold text-slate-900 group-hover:text-blue-600 transition-colors truncate max-w-full">
-                          {pr.title}
-                        </h3>
-                        <div className={`flex gap-1.5 ${expandedPrId === pr.id ? 'hidden' : 'flex'}`}>
-                          {pr.hashtags.slice(0, 3).map((tag, idx) => (
-                            <span key={idx} className="text-[11px] font-medium text-blue-600 bg-blue-50 border border-blue-100/50 px-2 py-0.5 rounded-full">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="text-xs text-slate-500 flex items-center gap-1.5">
-                        <img src={pr.avatarUrl} alt={pr.author} className="w-4 h-4 rounded-full border border-slate-200" />
-                        <span>#{pr.id} {pr.status === 'OPEN' ? 'opened' : 'merged'} by <span className="hover:text-blue-600 font-medium text-slate-700">{pr.author}</span></span>
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 flex items-center text-slate-400 mt-1">
-                      <ChevronRight className={`w-5 h-5 transition-transform duration-200 ${expandedPrId === pr.id ? 'rotate-90 text-blue-500' : 'group-hover:translate-x-1'}`} />
-                    </div>
-                  </div>
-
-                  {expandedPrId === pr.id && (
-                    <div className="px-4 sm:px-6 py-6 bg-[#f8fafc] border-t border-slate-100 cursor-default shadow-inner">
-                      <div className="max-w-4xl mx-auto space-y-8">
-                        
-                        <div className="relative overflow-hidden rounded-xl border border-indigo-100/60 bg-white shadow-sm hover:shadow-md transition-shadow duration-300">
-                          <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500"></div>
-                          
-                          <div className="p-5 sm:p-6 bg-gradient-to-br from-indigo-50/20 via-white to-purple-50/10">
-                            <div className="flex items-center justify-between mb-4">
-                              <div className="flex items-center gap-2.5">
-                                <div className="p-1.5 bg-indigo-50 rounded-lg border border-indigo-100">
-                                  <Bot className="w-5 h-5 text-indigo-500" />
-                                </div>
-                                <h4 className="text-sm font-semibold text-slate-800">AI 리뷰 요약</h4>
-                              </div>
-                              {summaries[pr.id]?.cached && (
-                                <span className="text-[10px] font-medium bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                  <Check className="w-3 h-3" /> 캐시됨
-                                </span>
-                              )}
-                            </div>
-                            
-                            {loadingSummaries[pr.id] ? (
-                              <div className="flex items-center gap-3 py-4">
-                                <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-                                <span className="text-sm text-slate-500">AI가 PR 본문을 분석하고 있습니다...</span>
-                              </div>
-                            ) : summaries[pr.id] ? (
-                              <div className="space-y-3">
-                                <div className="text-xs font-semibold text-[#656d76] uppercase tracking-wide">핵심 리뷰 포인트</div>
-                                <ol className="space-y-2">
-                                  {formatSummary(summaries[pr.id].text).map((item, idx) => (
-                                    <li key={idx} className="text-sm text-slate-700 bg-[#f6f8fa] border border-[#d0d7de] rounded-md px-3 py-2">
-                                      <span className="font-semibold text-[#0969da] mr-2">{idx + 1}.</span>{item}
-                                    </li>
-                                  ))}
-                                </ol>
-                                <details className="text-xs text-slate-500">
-                                  <summary className="cursor-pointer">원문 요약 보기</summary>
-                                  <div className="mt-2 prose prose-sm max-w-none">
-                                    <ReactMarkdown>{summaries[pr.id].text}</ReactMarkdown>
-                                  </div>
-                                </details>
-                              </div>
-                            ) : (
-                              <div className="text-sm text-slate-500 italic py-2">
-                                요약을 불러오는 중...
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-2">
-                              <MessageSquare className="w-4 h-4 text-slate-500" />
-                              <h4 className="text-sm font-semibold text-slate-700">
-                                리뷰 코멘트 {commentsData[pr.id] ? `(${commentsData[pr.id].length})` : ''}
-                              </h4>
-                            </div>
-                            
-                            {/* 중요 코멘트 필터 토글 */}
-                            {commentsData[pr.id] && commentsData[pr.id].length > 0 && (
-                              <div className="flex items-center gap-2">
-                                {loadingImportantComments[pr.id] ? (
-                                  <span className="text-xs text-slate-500 flex items-center gap-1.5">
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                    AI 필터링 중...
-                                  </span>
-                                ) : importantComments[pr.id] && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowImportantOnly(prev => ({ ...prev, [pr.id]: !prev[pr.id] }));
-                                    }}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                                      showImportantOnly[pr.id]
-                                        ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                                        : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
-                                    }`}
-                                  >
-                                    <Filter className="w-3 h-3" />
-                                    {showImportantOnly[pr.id] 
-                                      ? `중요 코멘트 (${importantComments[pr.id].comments.length})` 
-                                      : '중요 코멘트만'}
-                                    {importantComments[pr.id].cached && (
-                                      <Check className="w-3 h-3 text-emerald-500 ml-1" />
-                                    )}
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {loadingComments[pr.id] ? (
-                            <div className="flex items-center gap-3 py-8 justify-center text-slate-500">
-                              <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                              <span className="text-sm">리뷰 코멘트를 불러오는 중...</span>
-                            </div>
-                          ) : commentErrors[pr.id] ? (
-                            <div className="py-8 text-center text-red-500 bg-red-50/50 rounded-lg border border-red-100">
-                              <AlertCircle className="w-6 h-6 mx-auto mb-2" />
-                              <p className="text-sm">{commentErrors[pr.id]}</p>
-                            </div>
-                          ) : getDisplayComments(pr.id).length > 0 ? (
-                            <div className="space-y-3">
-                              {getDisplayComments(pr.id).map((comment) => {
-                                // 중요 코멘트인 경우 reason 표시
-                                const importantInfo = showImportantOnly[pr.id] 
-                                  ? importantComments[pr.id]?.comments.find(ic => ic.id === comment.id)
-                                  : null;
-                                
-                                return (
-                                  <div 
-                                    key={comment.id} 
-                                    className={`rounded-lg border bg-white overflow-hidden transition-shadow hover:shadow-sm ${
-                                      comment.isReply ? 'ml-6 border-l-2 border-l-blue-200 border-slate-200' : 
-                                      importantInfo ? 'border-amber-200 ring-1 ring-amber-100' : 'border-slate-200'
-                                    }`}
-                                  >
-                                    <div className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 ${
-                                      importantInfo ? 'bg-amber-50/70' : 'bg-slate-50/70'
-                                    }`}>
-                                      <img 
-                                        src={comment.avatarUrl} 
-                                        alt={comment.reviewer} 
-                                        className="w-5 h-5 rounded-full border border-slate-200"
-                                      />
-                                      <span className="text-xs font-semibold text-slate-700">{comment.reviewer}</span>
-                                      <span className="text-[10px] text-slate-400">
-                                        {new Date(comment.created_at).toLocaleDateString('ko-KR')}
-                                      </span>
-                                      {comment.isReply && (
-                                        <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">답글</span>
-                                      )}
-                                      {importantInfo && (
-                                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium ml-auto flex items-center gap-1">
-                                          <Sparkles className="w-3 h-3" />
-                                          {importantInfo.reason}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {comment.codeContext && (
-                                      <div className="px-4 pt-3">
-                                        <p className="text-xs font-medium text-slate-500 mb-2">
-                                          {comment.codePath ? `파일: ${comment.codePath}` : '지정 코드'}
-                                        </p>
-                                        <pre className="text-xs bg-slate-900 text-slate-100 rounded-md p-3 overflow-x-auto">
-{comment.codeContext}
-                                        </pre>
-                                      </div>
-                                    )}
-                                    <div className="px-4 py-3 text-sm text-slate-700 prose prose-sm max-w-none prose-p:my-1 prose-code:text-xs prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-slate-800 prose-pre:text-slate-100">
-                                      <ReactMarkdown>{comment.content}</ReactMarkdown>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="py-8 text-center text-slate-400 bg-slate-50/50 rounded-lg border border-slate-100">
-                              <MessageSquare className="w-6 h-6 mx-auto mb-2 opacity-50" />
-                              <p className="text-sm">
-                                {showImportantOnly[pr.id] ? '중요한 리뷰 코멘트가 없습니다.' : '아직 리뷰 코멘트가 없습니다.'}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="pt-4 border-t border-slate-200 flex justify-end">
-                          <a 
-                            href={pr.githubUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                          >
-                            <Github className="w-4 h-4" />
-                            GitHub에서 보기
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="py-16 text-center text-slate-400 bg-white">
-                <Search className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">검색 결과가 없습니다.</p>
-              </div>
-            )}
+          <div className="divide-y">
+            {filteredPRs.map((pr)=>{ const isExpanded=expandedPrId===pr.id; const displayComments=getDisplayComments(pr.id); return <div key={pr.id}><div className="px-4 py-3 hover:bg-[#f6f8fa] cursor-pointer flex items-start gap-3" onClick={()=>togglePR(pr)}><div className="mt-1">{pr.status==='OPEN'?<GitPullRequest className="w-4 h-4 text-[#1a7f37]"/>:<GithubMergeIcon className="w-4 h-4 text-[#8250df]"/>}</div><div className="flex-1"><div className="flex justify-between"><h3 className="font-semibold">{pr.title}</h3><div className="flex items-center gap-3"><MessageSquare className="w-4 h-4"/>{isExpanded?<ChevronDown className="w-4 h-4"/>:<ChevronRight className="w-4 h-4"/>}</div></div><div className="text-xs text-[#656d76]">#{pr.id} {pr.status==='MERGED'?'merged':'opened'} {timeAgoString(pr.createdAt)} by {pr.author}</div></div></div>{isExpanded && <div className="px-4 pb-6"><div className="border rounded-md p-4 my-4"><div className="flex items-center gap-1 text-xs text-[#656d76] mb-2"><Info className="w-3 h-3"/>AI Summary</div><pre className="whitespace-pre-wrap text-sm">{loadingSummaries[pr.id]?'요약 중...':(summaries[pr.id]?.text || '-')}</pre></div>{loadingComments[pr.id]&&<div>comments loading...</div>}{commentErrors[pr.id]&&<div className="text-red-600 text-sm">{commentErrors[pr.id]}</div>}<div className="space-y-3">{displayComments.map(c=><div key={c.id} className="border rounded-md p-3"><div className="text-xs text-[#656d76]">{c.reviewer} · {timeAgoString(c.created_at)}</div><div className="text-sm whitespace-pre-wrap">{c.content}</div></div>)}</div></div>}</div>})}
           </div>
         </div>
       </main>
