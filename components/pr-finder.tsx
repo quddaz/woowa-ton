@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, Github, MessageSquare, X, AlertCircle,
-  GitPullRequest, GitMerge, Check, ChevronRight, Sparkles, Loader2, Bot, Filter
+  GitPullRequest, GitMerge, Check, ChevronRight, Sparkles, Loader2, Info, Filter
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { createClient } from '@/lib/supabase/client';
@@ -66,16 +66,15 @@ const formatSummary = (text: string) => {
     .slice(0, 5);
 };
 
-const extractHashtags = (text: string | null) => {
-  if (!text) return ['기능구현'];
-  const keywords = ['예외처리', 'RestControllerAdvice', '인터셉터', '도메인', 'DTO', '동시성', 'JPA', '테스트', 'Auth', '권한', '리팩터링', '인증', '인가', '세션', '쿠키', '상태패턴', '일급컬렉션'];
-  const tags: string[] = [];
-  keywords.forEach(kw => {
-    if (text.toLowerCase().includes(kw.toLowerCase())) tags.push(kw);
-  });
-  if (tags.length === 0) tags.push('기능구현');
-  return tags;
+const extractGitHubLineInfo = (codeContext: string): string | null => {
+  const match = codeContext.match(/@@\s-[^\s]+\s\+([^\s]+)\s@@/);
+  if (!match) return null;
+  const [start, count] = match[1].split(',');
+  if (!start) return null;
+  if (!count || count === '1') return `Line ${start}`;
+  return `Lines ${start}-${Number(start) + Number(count) - 1}`;
 };
+
 
 interface PR {
   id: number;
@@ -90,7 +89,6 @@ interface PR {
   updatedAt: string;
   commentsUrl: string;
   reviewCommentsUrl: string;
-  hashtags: string[];
 }
 
 interface Comment {
@@ -183,8 +181,7 @@ export default function PRFinder() {
           createdAt: pr.created_at,
           updatedAt: pr.updated_at,
           commentsUrl: pr.comments_url,
-          reviewCommentsUrl: pr.review_comments_url,
-          hashtags: extractHashtags(pr.title + ' ' + pr.body)
+          reviewCommentsUrl: pr.review_comments_url
         })).filter((pr: PR) => pr.status !== 'CLOSED' && new Date(pr.createdAt) >= PR_DATE_CUTOFF);
 
         setPrs(formattedPrs);
@@ -663,13 +660,6 @@ export default function PRFinder() {
                         <h3 className="text-[15px] font-semibold text-slate-900 group-hover:text-blue-600 transition-colors truncate max-w-full">
                           {pr.title}
                         </h3>
-                        <div className={`flex gap-1.5 ${expandedPrId === pr.id ? 'hidden' : 'flex'}`}>
-                          {pr.hashtags.slice(0, 3).map((tag, idx) => (
-                            <span key={idx} className="text-[11px] font-medium text-blue-600 bg-blue-50 border border-blue-100/50 px-2 py-0.5 rounded-full">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
                       </div>
 
                       <div className="text-xs text-slate-500 flex items-center gap-1.5">
@@ -687,51 +677,38 @@ export default function PRFinder() {
                     <div className="px-4 sm:px-6 py-6 bg-[#f8fafc] border-t border-slate-100 cursor-default shadow-inner">
                       <div className="max-w-4xl mx-auto space-y-8">
                         
-                        <div className="relative overflow-hidden rounded-xl border border-indigo-100/60 bg-white shadow-sm hover:shadow-md transition-shadow duration-300">
-                          <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500"></div>
-                          
-                          <div className="p-5 sm:p-6 bg-gradient-to-br from-indigo-50/20 via-white to-purple-50/10">
-                            <div className="flex items-center justify-between mb-4">
-                              <div className="flex items-center gap-2.5">
-                                <div className="p-1.5 bg-indigo-50 rounded-lg border border-indigo-100">
-                                  <Bot className="w-5 h-5 text-indigo-500" />
-                                </div>
-                                <h4 className="text-sm font-semibold text-slate-800">AI 리뷰 요약</h4>
-                              </div>
-                              {summaries[pr.id]?.cached && (
-                                <span className="text-[10px] font-medium bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                  <Check className="w-3 h-3" /> 캐시됨
-                                </span>
-                              )}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-[#57606a]">
+                            <Info className="w-4 h-4" />
+                            <h4 className="text-[28px] font-semibold leading-none">AI Summery</h4>
+                            {summaries[pr.id]?.cached && (
+                              <span className="text-[10px] font-medium bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1 ml-2">
+                                <Check className="w-3 h-3" /> cached
+                              </span>
+                            )}
+                          </div>
+                          <div className="rounded-md border border-[#d0d7de] bg-white overflow-hidden">
+                            <div className="px-4 py-3 bg-[#f6f8fa] border-b border-[#d0d7de] text-sm text-[#57606a] font-medium">
+                              AI generated summary
                             </div>
-                            
-                            {loadingSummaries[pr.id] ? (
-                              <div className="flex items-center gap-3 py-4">
-                                <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-                                <span className="text-sm text-slate-500">AI가 PR 본문을 분석하고 있습니다...</span>
-                              </div>
-                            ) : summaries[pr.id] ? (
-                              <div className="space-y-3">
-                                <div className="text-xs font-semibold text-[#656d76] uppercase tracking-wide">핵심 리뷰 포인트</div>
+                            <div className="px-5 py-4">
+                              {loadingSummaries[pr.id] ? (
+                                <div className="flex items-center gap-3 py-2 text-[#57606a]">
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  <span className="text-sm">AI가 PR 본문을 분석하고 있습니다...</span>
+                                </div>
+                              ) : summaries[pr.id] ? (
                                 <ol className="space-y-2">
                                   {formatSummary(summaries[pr.id].text).map((item, idx) => (
-                                    <li key={idx} className="text-sm text-slate-700 bg-[#f6f8fa] border border-[#d0d7de] rounded-md px-3 py-2">
-                                      <span className="font-semibold text-[#0969da] mr-2">{idx + 1}.</span>{item}
+                                    <li key={idx} className="text-sm text-[#1f2328] leading-6">
+                                      <span className="font-semibold mr-2">{idx + 1}.</span>{item}
                                     </li>
                                   ))}
                                 </ol>
-                                <details className="text-xs text-slate-500">
-                                  <summary className="cursor-pointer">원문 요약 보기</summary>
-                                  <div className="mt-2 prose prose-sm max-w-none">
-                                    <ReactMarkdown>{summaries[pr.id].text}</ReactMarkdown>
-                                  </div>
-                                </details>
-                              </div>
-                            ) : (
-                              <div className="text-sm text-slate-500 italic py-2">
-                                요약을 불러오는 중...
-                              </div>
-                            )}
+                              ) : (
+                                <div className="text-sm text-[#57606a] italic">요약을 불러오는 중...</div>
+                              )}
+                            </div>
                           </div>
                         </div>
 
@@ -827,10 +804,15 @@ export default function PRFinder() {
                                     </div>
                                     {comment.codeContext && (
                                       <div className="px-4 pt-3">
-                                        <p className="text-xs font-medium text-slate-500 mb-2">
-                                          {comment.codePath ? `파일: ${comment.codePath}` : '지정 코드'}
-                                        </p>
-                                        <pre className="text-xs bg-slate-900 text-slate-100 rounded-md p-3 overflow-x-auto">
+                                        <div className="text-xs font-medium text-[#57606a] mb-2 flex items-center gap-2 flex-wrap">
+                                          <span>{comment.codePath ? `파일: ${comment.codePath}` : '지정 코드'}</span>
+                                          {extractGitHubLineInfo(comment.codeContext) && (
+                                            <span className="rounded-full border border-[#1f883d33] bg-[#dafbe1] px-2 py-0.5 text-[10px] font-semibold text-[#1a7f37]">
+                                              {extractGitHubLineInfo(comment.codeContext)}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <pre className="text-xs bg-[#dafbe1] text-[#1a7f37] border border-[#1f883d33] rounded-md p-3 overflow-x-auto">
 {comment.codeContext}
                                         </pre>
                                       </div>
