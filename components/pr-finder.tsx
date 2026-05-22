@@ -13,7 +13,7 @@ const supabase = createClient();
 
 // Gemini API Key
 const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash-lite-preview-06-17';
 
 // GitHub Token (선택적)
 const GITHUB_TOKEN = process.env.NEXT_PUBLIC_GITHUB_TOKEN;
@@ -329,7 +329,7 @@ export default function PRFinder() {
 중요한 코멘트가 없으면 빈 배열 []을 반환하세요.
 반드시 유효한 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite-preview-06-17:generateContent?key=${GEMINI_API_KEY}`;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
         const payload = {
           contents: [{ parts: [{ text: commentsText }] }],
